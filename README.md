@@ -3,7 +3,7 @@
 
 ### Functionalities
 - Format String Bug Exploit Generator
-    + Example
+
     ```python
     #!/usr/bin/env python3
     from bu6pwn.FSB import FSB
