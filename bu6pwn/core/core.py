@@ -87,3 +87,44 @@ if os.name == 'nt':
         fail('module "colorama" is not importable')
 
 #===============
+
+class Environment(object):
+    def __init__(self, *envs):
+        self.__env = None
+        self.env_list = list(set(envs))
+        for env in self.env_list:
+            setattr(self, env, dict())
+    
+    def set_item(self, name, **obj):
+        if obj.keys() != self.env_list:
+            fatal("Environment : '%s' envoronment does not match" % name)
+            return
+
+        for env in obj:
+            getattr(self, env).update({name:ibj[env]})
+    
+    def select(self, env=None):
+        if env is not None and env not in self.env_list:
+            warn("Environment : '%s' is not defined" % env)
+            env = None
+        
+        while env is None:
+            sel = input("Select Environment\n%s ..." % str(self.env_list))
+            if not sel:
+                env = self.env_list[0]
+            elif sel in self.env_list:
+                env = sel
+            else:
+                for e in self.env_list:
+                    if e.startswith(self):
+                        env = e
+                        break
+        
+        info("Environment : set environment '%s'" % env)
+        for name, obj in getattr(self, env).items():
+            setattr(self, name, obj)
+        self.__env = env
+    
+    def check(self, env):
+        return self.__env == env
+

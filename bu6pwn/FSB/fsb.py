@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 #-*- coding: utf-8 -*-
 from bu6pwn.core import *
+import functools
+
+# def debug(function):
+#     @functools.wraps(function)
+#     def wrapped_function(*args, **kwargs):
+#         args_repr=[repr(a) for a in args]
+#         kwargs_repr=[f"{k}={v!r}" for k,v in kwargs.items()]
+#         print(f"{function.__name__}")
+#         print(f"{function.__name__}'s args: {args_repr}'")
+#         print(f"{function.__name__}'s kwargs: {kwargs_repr}'")
+#         value = function(*args, **kwargs)
+#         return value    
+#     return wrapped_function 
 
 class FSB(object):
     def __init__(self,header=0,count=None,gap=0,size=2,debug=False):
@@ -19,7 +32,10 @@ class FSB(object):
             warn('FSB : Use "get()" to generate exploit')
         self.__fsb = b'@'*(gap+header_pad)
         self.header = header
-        self.count = (header if count is None else header_pad+count) + gap
+        # CHANGED
+        #self.count = (header if count is None else header_pad+count) + gap
+
+        self.count = (header + header_pad if header_pad else header) + gap
 
         if size == 1:
             self.wfs = 2        # %hhn
@@ -51,14 +67,13 @@ class FSB(object):
             self.__fsb += fsb.encode()
         except AttributeError:
             self.__fsb += fsb
-        #print("[DEBUG]: TYPE(fsb) %s" % type(fsb))
-        return '' if self.padding else fsb
+        return b'' if self.padding else fsb
     
     def addr(self, addr):
         self.count += 4
         adr = pack_32(addr)
         return self.gen(adr)
-        
+    
     def write(self, index, value):
         x = value - self.count
         fsb  = '%%%dc' % (x if x>0 else self.fr+x) if x else ''
@@ -70,9 +85,10 @@ class FSB(object):
         self.adrval.update({adr:value})
 
     def auto_write(self, index):
-        adr = pld = ''
+        adr = pld = b''
         d = {}
         l = []
+
         for a,v in self.adrval.items():
             if self.size == 1:
                 div = {a:v&0xff, a+1:(v>>0x8)&0xff, a+2:(v>>0x10)&0xff, a+3:(v>>0x18)&0xff}
