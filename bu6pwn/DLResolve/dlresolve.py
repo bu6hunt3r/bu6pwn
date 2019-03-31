@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
 
+"""
+https://github.com/inaz2/roputils/blob/master/roputils.py
+"""
 class ELF(object):
     def __init__(self, fpath, base=0):
         def env_with(d):
