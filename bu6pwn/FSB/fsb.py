@@ -112,7 +112,7 @@ class FSB(object):
             pld += self.write(index, value)
             index += 1
         if self.debug:
-            print(pld)
+            print(adr+pld)
         
         return adr+pld
        

@@ -11,6 +11,6 @@ setup(
     url = "https://github.com/bu6hunt3r/bu6pwn",
     author = "bu6hunt3r",
     license = "GPLv3",
-    packages = ["bu6pwn/core","bu6pwn/FSB"],
+    packages = ["bu6pwn/core","bu6pwn/FSB", "bu6pwn/IO", "bu6pwn/DLResolve"],
     zip_safe = False,
 )
