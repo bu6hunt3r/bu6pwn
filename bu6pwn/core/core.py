@@ -7,6 +7,17 @@ from base64 import b64decode, b64encode
 from time import sleep
 import re
 
+class Dotdict(dict):
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __init__(self, dct):
+        for key, value in dct.items():
+            if hasattr(value, 'keys'):
+                value = Dotdict(value)
+            self[key] = value
+
 def debug(function):
     def wrapped(*args, **kwargs):
         args_repr=[repr(a) for a in args]

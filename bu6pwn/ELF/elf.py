@@ -11,7 +11,16 @@ import random
 import re
 
 class ELF(object):
-    def __init__(self, fpath, base=0, debug = False):
+    def __init__(self, fpath, base=0, debug = False, nojop=True, all=False, noretf=True):
+        """
+        Generates set of possible ROP gadgets
+        @fpath (required):  Filename to ELF file to analyze
+        @base  (optional):  Adjust memory rebase
+        @debug (optional):  Display ELF header info
+        @nojop (optional):  Boolean value defining whether to search for JOP gadgets also
+        @all   (optional):  Boolean / delete duplicate gadgets
+        @noretf (optional):  Boolean / define if blob should also be examined for far ret gadgets
+        """
         def env_with(d):
             env = os.environ.copy()
             env.update(d)
