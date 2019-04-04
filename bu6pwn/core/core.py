@@ -8,15 +8,21 @@ from time import sleep
 import re
 
 class Dotdict(dict):
-    __getattr__ = dict.__getitem__
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
 
     def __init__(self, dct):
         for key, value in dct.items():
             if hasattr(value, 'keys'):
                 value = Dotdict(value)
             self[key] = value
+
+    def __getattr__(self, name):
+        if name in self:
+            return self.__getitem__(name)
+        else:
+            return None
+
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 def debug(function):
     def wrapped(*args, **kwargs):

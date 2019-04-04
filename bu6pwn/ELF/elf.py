@@ -11,15 +11,12 @@ import random
 import re
 
 class ELF(object):
-    def __init__(self, fpath, base=0, debug = False, nojop=True, all=False, noretf=True):
+    def __init__(self, fpath, base=0, debug=False):
         """
         Generates set of possible ROP gadgets
         @fpath (required):  Filename to ELF file to analyze
         @base  (optional):  Adjust memory rebase
         @debug (optional):  Display ELF header info
-        @nojop (optional):  Boolean value defining whether to search for JOP gadgets also
-        @all   (optional):  Boolean / delete duplicate gadgets
-        @noretf (optional):  Boolean / define if blob should also be examined for far ret gadgets
         """
         def env_with(d):
             env = os.environ.copy()
@@ -299,6 +296,16 @@ class ELF(object):
             # for tag in ph.iter_tags():
             #     if tag['d_tag'] == 'DT_PLTGOT':
             #         print("FOUND PLT")
+
+    def get_exec_segments(self):
+        exec_segs = {}
+        for seg in self._load_blobs:
+            if seg[-1] == True:
+                exec_segs.update({seg[0]:seg[-2]})
+        
+        return exec_segs
+
+
 
     def offset(self, offset):
         return self.base + offset

@@ -2,9 +2,11 @@ from bu6pwn.core import *
 from bu6pwn.ELF import ELF as ELF
 from capstone import *
 
+
 class ROP(ELF):
     def __init__(self, *args, **kwargs):
         """
+        nojop=True, all=False, noretf=True
         Generates set of possible ROP gadgets
         @fpath  (required):  Filename to file which should be examined for possible gadgets
         @base   (optional):  Adjust memory rebase
@@ -12,8 +14,17 @@ class ROP(ELF):
         @nojop  (optional):  Boolean value defining whether to search for JOP gadgets also
         @all    (optional):  Boolean / delete duplicate gadgets
         @noretf (optional):  Boolean / define if blob should also be examined for far ret gadgets
+        @depth  (optional):  Int / define depth for gadget search; default 3
         """
-        ELF.__init__(self, *args, **kwargs)
+        self.debug = kwargs["debug"] if "debug" in kwargs else False
+        self.base = kwargs["base"] if "base" in kwargs else 0 
+        self.nojop = kwargs["nojop"] if "nojop" in kwargs else False
+        self._all = kwargs["all"] if "all" in kwargs else False
+        self.noretf = kwargs["noretf"] if "noretf" in kwargs else False
+        self.depth = kwargs["depth"] if "depth" in kwargs else 3
+        
+        ELF.__init__(self, *args, debug=self.debug, base=self.base)
+
         # if self.arch == 'i386':
         #     self.__class__ = type('ROP_I386', (ROP_I386,), {})
         # if self.arch == 'x86-64':
@@ -25,30 +36,35 @@ class ROP(ELF):
         if self.arch not in ['i386', 'x86-64', 'arm']:
             raise Exception("unknown architecture: %r" % self.arch)
         
-        self.options = Dotdict(kwargs)
-        print(args)
-        print(kwargs)
-        print(self.options)
+        self.cs_arch = {
+            'i386': (CS_ARCH_X86, CS_MODE_32),
+            'x86-64': (CS_ARCH_X86, CS_MODE_64),
+            'arm': (CS_ARCH_ARM, CS_MODE_ARM)
+        }.get(self.arch, (None, None))
 
     def analyze(self):
         gadget_terminations = self.add_rop_gadgets() 
-        if not self.options.nojop:
+        if not self.nojop:
             gadget_terminations += self.add_jop_gadgets()
         
         gadgets = self.search_gadgets(gadget_terminations)
+
+        """
         gadgets = self.pass_clean(gadgets)
 
-        if not self.options.all:
+        if not self._all:
             gadgets = self.delete_duplicate_gadgets()
         
         return self.alpha_sortgadgets(gadgets)
+        """
+        return gadgets
 
     def add_rop_gadgets(self):
         gadgets = [
             b"\xc3",                # ret
             b"\xc2[\x00-\xff]{2}"   # ret <imm>
         ]
-        if not self.options.noretf:
+        if not self.noretf:
             # Far return: does not also pop IP, it also pops code segment (CS) 
             # throwback to older days when segmented memory models were common.
             gadgets += [
@@ -67,8 +83,39 @@ class ROP(ELF):
         ]
 
         return gadgets
+    
+    def search_gadgets(self, gadget_terminations):
+        ret = []
 
+        arch = self.arch
+        # vaddr = self._entry_point
+        section = self.get_exec_segments()
 
+        vaddr = list(section.keys())[0]
+        section = list(section.values())[0]
+
+        md=Cs(self.cs_arch[0], self.cs_arch[1])
+
+        for termination in gadget_terminations:
+            # print("Termination({}): {}".format(type(termination), termination))
+            # print("Section({}): {}".format(type(section), section))
+            all_ref_ret = [m.end() for m in re.finditer(termination, section)]
+            # print(all_ref_ret)
+            for ref in all_ref_ret:
+                for depth in range(1, self.depth + 1):
+                    bytes_ = section[ref - depth:ref]
+                    print(bytes_)
+                    decodes = md.disasm(bytes_, vaddr + ref - depth)
+                    gadget = ""
+                    for decode in decodes:
+                        gadget += (decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " ")
+                        # print((hex(vaddr+ref-depth) + ":" + decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " "))
+                    if len(gadget) > 0:
+                        gadget = gadget[:-3]
+                        ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref-depth, "gadget": gadget, "bytes": bytes_, "values": ""}]
+                        print(ret)
+        
+        return ret
 
     def p(self, x):
         if self.wordsize == 8:
