@@ -43,20 +43,20 @@ class ROP(ELF):
         }.get(self.arch, (None, None))
 
     def analyze(self):
+        """
+        Getting gadgets from actual binary
+        """
         gadget_terminations = self.add_rop_gadgets() 
         if not self.nojop:
             gadget_terminations += self.add_jop_gadgets()
         
         gadgets = self.search_gadgets(gadget_terminations)
-
-        """
         gadgets = self.pass_clean(gadgets)
 
         if not self._all:
-            gadgets = self.delete_duplicate_gadgets()
+            gadgets = self.delete_duplicate_gadgets(gadgets)
         
         return self.alpha_sortgadgets(gadgets)
-        """
         return gadgets
 
     def add_rop_gadgets(self):
@@ -85,6 +85,10 @@ class ROP(ELF):
         return gadgets
     
     def search_gadgets(self, gadget_terminations):
+        """
+        Will determine gadgets in exectubable segments
+        @gadget_terminations (required):  Bytes / Gadget Terminations for ROP generation
+        """
         ret = []
 
         arch = self.arch
@@ -104,7 +108,6 @@ class ROP(ELF):
             for ref in all_ref_ret:
                 for depth in range(1, self.depth + 1):
                     bytes_ = section[ref - depth:ref]
-                    print(bytes_)
                     decodes = md.disasm(bytes_, vaddr + ref - depth)
                     gadget = ""
                     for decode in decodes:
@@ -113,9 +116,41 @@ class ROP(ELF):
                     if len(gadget) > 0:
                         gadget = gadget[:-3]
                         ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref-depth, "gadget": gadget, "bytes": bytes_, "values": ""}]
-                        print(ret)
         
         return ret
+
+    def pass_clean(self, gadgets):
+        new = []
+        br = ["ret"]
+        if not self.noretf:
+            br += ["retf"]
+        if not self.nojop:
+            br += ["jmp", "call"]
+        for gadget in gadgets:
+            insts = gadget["gadget"].split(" ; ")
+            print(insts)
+            if len(insts) == 1 and insts[0].split(" ")[0] not in br:
+                continue
+            if insts[-1].split(" ")[0] not in br:
+                continue
+            if len([m.start() for m in re.finditer("ret", gadget["gadget"])]) > 1:
+                continue
+            new += [gadget]
+        return new
+
+    def delete_duplicate_gadgets(self, gadgets):
+        gadgets_content_set = set()
+        unique_gadgets = []
+        for gadget in gadgets:
+            gad = gadget["gadget"]
+            if gad in gadgets_content_set:
+                continue
+            gadgets_content_set.add(gad)
+            unique_gadgets += [gadget]
+        return unique_gadgets
+
+    def alpha_sortgadgets(self, current_gadgets):
+        return sorted(current_gadgets, key=lambda gadget: gadget["gadget"])
 
     def p(self, x):
         if self.wordsize == 8:
