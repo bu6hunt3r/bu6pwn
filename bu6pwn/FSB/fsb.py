@@ -3,17 +3,17 @@
 from bu6pwn.core import *
 import functools
 
-# def debug(function):
-#     @functools.wraps(function)
-#     def wrapped_function(*args, **kwargs):
-#         args_repr=[repr(a) for a in args]
-#         kwargs_repr=[f"{k}={v!r}" for k,v in kwargs.items()]
-#         print(f"{function.__name__}")
-#         print(f"{function.__name__}'s args: {args_repr}'")
-#         print(f"{function.__name__}'s kwargs: {kwargs_repr}'")
-#         value = function(*args, **kwargs)
-#         return value    
-#     return wrapped_function 
+def debug(function):
+    @functools.wraps(function)
+    def wrapped_function(*args, **kwargs):
+        args_repr=[repr(a) for a in args]
+        kwargs_repr=[f"{k}={v!r}" for k,v in kwargs.items()]
+        print(f"{function.__name__}")
+        print(f"{function.__name__}'s args: {args_repr}'")
+        print(f"{function.__name__}'s kwargs: {kwargs_repr}'")
+        value = function(*args, **kwargs)
+        return value    
+    return wrapped_function 
 
 class FSB(object):
     def __init__(self,header=0,count=None,gap=0,size=2,debug=False):
@@ -82,7 +82,7 @@ class FSB(object):
         return self.gen(fsb)
 
     def set_adrval(self, adr, value):
-        self.adrval.update({adr:value})
+        self.adrval.update({adr: value})
 
     def auto_write(self, index):
         adr = pld = b''

@@ -25,16 +25,15 @@ class ROP(ELF):
         
         ELF.__init__(self, *args, debug=self.debug, base=self.base)
 
-        # if self.arch == 'i386':
-        #     self.__class__ = type('ROP_I386', (ROP_I386,), {})
-        # if self.arch == 'x86-64':
-        #     self.__class__ = type('ROP_X86_64', (ROP_X86_64,), {})
-        # if self.arch == 'arm':
-        #     self.__class__ = type('ROP_ARM', (ROP_ARM,), {})
+
+        if self.arch == 'i386':
+            self.__class__ = type('ROP_I386', (ROP_I386,), {})
+        if self.arch == 'x86-64':
+            self.__class__ = type('ROP_X86_64', (ROP_X86_64,), {})
+        if self.arch == 'arm':
+            self.__class__ = type('ROP_ARM', (ROP_ARM,), {})
         # else:
         #     raise Exception("unknown architecture: %r" % self.arch)
-        if self.arch not in ['i386', 'x86-64', 'arm']:
-            raise Exception("unknown architecture: %r" % self.arch)
         
         self.cs_arch = {
             'i386': (CS_ARCH_X86, CS_MODE_32),
@@ -42,7 +41,7 @@ class ROP(ELF):
             'arm': (CS_ARCH_ARM, CS_MODE_ARM)
         }.get(self.arch, (None, None))
 
-    def analyze(self):
+    def analyze(self, xonly=True):
         """
         Getting gadgets from actual binary
         """
@@ -50,7 +49,7 @@ class ROP(ELF):
         if not self.nojop:
             gadget_terminations += self.add_jop_gadgets()
         
-        gadgets = self.search_gadgets(gadget_terminations)
+        gadgets = self.search_gadgets(gadget_terminations, xonly)
         gadgets = self.pass_clean(gadgets)
 
         if not self._all:
@@ -84,7 +83,7 @@ class ROP(ELF):
 
         return gadgets
     
-    def search_gadgets(self, gadget_terminations):
+    def search_gadgets(self, gadget_terminations, xonly):
         """
         Will determine gadgets in exectubable segments
         @gadget_terminations (required):  Bytes / Gadget Terminations for ROP generation
@@ -93,17 +92,34 @@ class ROP(ELF):
 
         arch = self.arch
         # vaddr = self._entry_point
-        section = self.get_exec_segments()
+        section = self.get_segments(xonly)
 
         vaddr = list(section.keys())[0]
         section = list(section.values())[0]
 
         md=Cs(self.cs_arch[0], self.cs_arch[1])
 
-        for termination in gadget_terminations:
+        if isinstance   (gadget_terminations, bytes):
+            # all_ref_ret = [m.span() for m in re.finditer(re.escape(gadget_terminations), re.escape(section))]
+            all_ref_ret=[ref for ref in range(len(section)) if section.startswith(gadget_terminations, ref)]
+            for ref in all_ref_ret:
+                gadget = ""
+                bytes_ = section[ref:ref+len(gadget_terminations)]
+                decodes = md.disasm(bytes_, vaddr + ref)
+                for decode in decodes:
+                    # print(decode.mnemonic)
+                    gadget += (decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " ")
+                    # print((hex(vaddr+ref[0]) + ":" + decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " "))
+                if len(gadget) > 0:
+                    ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref, "gadget": gadget, "bytes": bytes_, "values": ""}]
+                else:
+                    ret = None
+        elif isinstance(gadget_terminations, re.Pattern):
+            print("PATTERN")
+            print(gadget_terminations)
             # print("Termination({}): {}".format(type(termination), termination))
             # print("Section({}): {}".format(type(section), section))
-            all_ref_ret = [m.end() for m in re.finditer(termination, section)]
+            all_ref_ret = [m.end() for m in re.finditer(gadget_terminations, section)]
             # print(all_ref_ret)
             for ref in all_ref_ret:
                 for depth in range(1, self.depth + 1):
@@ -128,7 +144,6 @@ class ROP(ELF):
             br += ["jmp", "call"]
         for gadget in gadgets:
             insts = gadget["gadget"].split(" ; ")
-            print(insts)
             if len(insts) == 1 and insts[0].split(" ")[0] not in br:
                 continue
             if insts[-1].split(" ")[0] not in br:
@@ -158,6 +173,16 @@ class ROP(ELF):
         else:
             return pack_32(x)
     
+    def search(self, s, xonly=True):
+        _gadgets = []
+        gadgets = self.analyze(xonly)
+        for g in gadgets:
+            m = re.findall(s, g["gadget"])
+            if m:
+                _gadgets.append(g)
+
+        return _gadgets
+
     def gadget(self, s):
         return self.search(s, xonly=True)
     
@@ -167,21 +192,129 @@ class ROP(ELF):
     def junk(self, n=1):
         return self.fill(self.wordsize * n)
 
-    def load(self, blob, base=0):
-        self._load_blobs += [(base, blob, True)]
+class ROP_I386(ROP):
+    regs = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
 
-    def scan_gadgets(self, regexp):
-        for virtaddr, blob, is_executable in self._load_blobs:
-            if not is_executable:
-                continue
 
-            for m in re.finditer(regexp, blob):
-                if self.arch == 'arm':
-                    arch = 'thumb'
-                else:
-                    arch = self.arch
+    def gadget(self, keyword, reg=None, n=1):
+
+        section = self.get_segments(xonly=True)
+        vaddr = list(section.keys())[0]
+        section = list(section.values())[0]
+
+        table = {
+            'pushad': b"\x60\xc3",
+            'popad': b"\x61\xc3",
+            'leave': b"\xc9\xc3",
+            'ret': b"\xc3",
+            'int3': b"\xcc",
+            'int80': b"\xcd\x80",
+            'call_gs10': b"\x65\xff\x15\x10\x00\x00\x00",
+            'syscall': b"\x0f\x05",
+        }
+
+        if keyword in table:
+            return self.search_gadgets(table[keyword], xonly=True)
+        
+        if reg:
+            try:
+                r = self.regs.index(reg)
+            except:
+                raise Exception("unexpected register: %r" % reg)
+        
+        else:
+            r = self.regs.index('esp')
+
+        if keyword == 'pop':
+            if reg:
+                chunk1=bytearray()
+                chunk1.append(0x58+r)
+                chunk1.append(0xc3)
+                chunk2=bytearray()
+                chunk2.append(0x8f) 
+                chunk2.append(0xc0+r)
+                chunk2.append(0xc3)
                 
-                
+                for c in [chunk1, chunk2]:
+                    return self.search_gadgets(bytes(c), xonly=True)
+            else:
+                #skip esp
+                chunk1=re.compile(b"[\x58-\x5b\x5d-\x5f]{%d}\xc3" % n)
+                chunk2=re.compile(b"\x8f[\xc0-\xc3\xc5-\xc7]{%d}\xc3" % n)
 
+                for c in [chunk1, chunk2]:
+                    return self.search_gadgets(c, xonly=True)
+        
+        elif keyword == 'call':
+            chunk=bytearray()
+            chunk.append(0xff)
+            chunk.append(0xd0+r)
+            return self.search_gadgets(bytes(chunk), xonly=True)
 
+        elif keyword == 'jmp':
+            chunk=bytearray()
+            chunk.append(0xff)
+            chunk.append(0xe0+r)
+            return self.search_gadgets(bytes(chunk), xonly=True)
+
+        elif keyword == 'jmp_ptr':
+            chunk=bytearray()
+            chunk.append(0xff)
+            chunk.append(0x20+r)
+            return self.search_gadgets(bytes(chunk), xonly=True)
+
+        elif keyword == 'push':
+            chunk1=bytearray()
+            chunk1.append(0x50+r)
+            chunk1.append(0xc3)
+            chunk2=bytearray()
+            chunk2.append(0xff)
+            chunk2.append(0xf0+r)
+            chunk2.append(0xc3)
+
+            for c in [chunk1, chunk2]:
+                return self.search_gadgets(bytes(c), xonly=True)
+        
+        elif keyword == 'pivot':
+            # chunk1: xchg REG, esp
+            # chunk2: xchg esp, REG
+            if r == 0:
+                chunk1 = bytearray()
+                chunk1.append(0x94)
+                chunk1.append(0xc3)
+            else:
+                chunk1 = bytearray()
+                chunk1.append(0x87)
+                chunk1.append(0xe0+r)
+                chunk1.append(0xc3)
+
+            chunk2 = bytearray()
+            chunk2.append(0x87)
+            chunk2.append(0xc4+8*r) 
+            chunk2.append(0xc3)
+
+            for c in [chunk1, chunk2]:
+                return self.search_gadgets(bytes(c), xonly=True)
+
+        elif keyword == 'loop':
+            chunk1 = b'\xeb\xfe'
+            chunk2 = b'\xe9\xfb\xff\xff\xff'
+
+            for c in [chunk1, chunk2]:
+                return self.search_gadgets(bytes(c), xonly=True)
+        else:
+            # search directly
+            return ROP.gadget(self, keyword)
     
+    def call(self, addr, *args):
+        if isinstance(addr, str):
+            try:
+                addr = self.plt(addr)
+            except:
+                raise Exception("%s seems not to be in PLT" % addr)
+        
+        buf = self.pack(addr)
+        buf += self.pack(self.gadget('pop', n=len(args)))
+        buf += self.pack(args)
+        return buf
+        

@@ -297,20 +297,23 @@ class ELF(object):
             #     if tag['d_tag'] == 'DT_PLTGOT':
             #         print("FOUND PLT")
 
-    def get_exec_segments(self):
-        exec_segs = {}
+    def get_segments(self, xonly):
+        segs = {}
         for seg in self._load_blobs:
-            if seg[-1] == True:
-                exec_segs.update({seg[0]:seg[-2]})
+            if xonly == True:
+                if seg[-1] == True:
+                    segs.update({seg[0]:seg[-2]})
+            else:
+                segs.update({seg[0]:seg[-2]})
         
-        return exec_segs
+        return segs
 
 
 
     def offset(self, offset):
         return self.base + offset
 
-    def p(self, x):
+    def pack(self, x):
         if self.wordsize == 8:
             return pack_64(x)
         else: 
