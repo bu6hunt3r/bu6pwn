@@ -115,8 +115,8 @@ class ROP(ELF):
                 else:
                     ret = None
         elif isinstance(gadget_terminations, re.Pattern):
-            print("PATTERN")
-            print(gadget_terminations)
+            # print("PATTERN")
+            # print(gadget_terminations)
             # print("Termination({}): {}".format(type(termination), termination))
             # print("Section({}): {}".format(type(section), section))
             all_ref_ret = [m.end() for m in re.finditer(gadget_terminations, section)]
@@ -124,16 +124,19 @@ class ROP(ELF):
             for ref in all_ref_ret:
                 for depth in range(1, self.depth + 1):
                     bytes_ = section[ref - depth:ref]
+                    # print("@{} -> {}".format(hex(ref), len(bytes_)))
                     decodes = md.disasm(bytes_, vaddr + ref - depth)
                     gadget = ""
                     for decode in decodes:
                         gadget += (decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " ")
                         # print((hex(vaddr+ref-depth) + ":" + decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " "))
                     if len(gadget) > 0:
-                        gadget = gadget[:-3]
+                        # CHANGED
+                        # gadget = gadget[:-3]
+                        gadget = gadget[:-depth]
                         ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref-depth, "gadget": gadget, "bytes": bytes_, "values": ""}]
         
-        return ret
+        return ret[-1]
 
     def pass_clean(self, gadgets):
         new = []
@@ -239,11 +242,13 @@ class ROP_I386(ROP):
                     return self.search_gadgets(bytes(c), xonly=True)
             else:
                 #skip esp
-                chunk1=re.compile(b"[\x58-\x5b\x5d-\x5f]{%d}\xc3" % n)
-                chunk2=re.compile(b"\x8f[\xc0-\xc3\xc5-\xc7]{%d}\xc3" % n)
+                chunk=re.compile(b"(?:[\x58-\x5b]|[\x5d-\x5f]){%d}\xc3" % n)
+                #chunk=re.compile(b"(?:(?:[\x58-\x5b]|[\x5d-\x5f])|\x8f[\xc0-\xc3\xc5-\xc7]){%d}\xc3" % n)
+                #chunk1=re.compile(b"[\x58-\x5b\x5d-\x5f]{%d}\xc3" % n)
+                #chunk2=re.compile(b"\x8f[\xc0-\xc3\xc5-\xc7]{%d}\xc3" % n)
 
-                for c in [chunk1, chunk2]:
-                    return self.search_gadgets(c, xonly=True)
+                #for c in [chunk1, chunk2]:
+                return self.search_gadgets(chunk, xonly=True)
         
         elif keyword == 'call':
             chunk=bytearray()
