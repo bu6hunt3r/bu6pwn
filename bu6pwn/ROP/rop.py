@@ -1,7 +1,7 @@
 from bu6pwn.core import *
 from bu6pwn.ELF import ELF as ELF
 from capstone import *
-
+import struct
 
 class ROP(ELF):
     def __init__(self, *args, **kwargs):
@@ -100,11 +100,18 @@ class ROP(ELF):
         md=Cs(self.cs_arch[0], self.cs_arch[1])
 
         if isinstance   (gadget_terminations, bytes):
-            # all_ref_ret = [m.span() for m in re.finditer(re.escape(gadget_terminations), re.escape(section))]
-            all_ref_ret=[ref for ref in range(len(section)) if section.startswith(gadget_terminations, ref)]
+            # print("BYTES")
+            # print("PATT: {}".format(gadget_terminations))
+            # all_ref_ret = [m.start() for m in re.finditer(re.escape(gadget_terminations), re.escape(section))]
+            # all_ref_ret = [m.start() for m in re.finditer(re.compile(gadget_terminations), section)]
+            # all_ref_ret=[ref for ref in range(len(section)) if section.startswith(gadget_terminations, ref)]
+            all_ref_ret = [m.start() for m in re.finditer(re.escape(gadget_terminations), section)]
+            # print(all_ref_ret)
             for ref in all_ref_ret:
+                # print(type(ref))
                 gadget = ""
-                bytes_ = section[ref:ref+len(gadget_terminations)]
+                # bytes_ = section[ref:ref+len(gadget_terminations)]
+                bytes_ = section[ref:ref+self.depth+1]
                 decodes = md.disasm(bytes_, vaddr + ref)
                 for decode in decodes:
                     # print(decode.mnemonic)
@@ -119,24 +126,31 @@ class ROP(ELF):
             # print(gadget_terminations)
             # print("Termination({}): {}".format(type(termination), termination))
             # print("Section({}): {}".format(type(section), section))
-            all_ref_ret = [m.end() for m in re.finditer(gadget_terminations, section)]
+            #all_ref_ret = [m.end() for m in re.finditer(gadget_terminations, section)]
+            all_ref_ret = [m.start() for m in re.finditer(gadget_terminations, section)]
             # print(all_ref_ret)
             for ref in all_ref_ret:
-                for depth in range(1, self.depth + 1):
-                    bytes_ = section[ref - depth:ref]
-                    # print("@{} -> {}".format(hex(ref), len(bytes_)))
-                    decodes = md.disasm(bytes_, vaddr + ref - depth)
-                    gadget = ""
-                    for decode in decodes:
-                        gadget += (decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " ")
-                        # print((hex(vaddr+ref-depth) + ":" + decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " "))
-                    if len(gadget) > 0:
-                        # CHANGED
-                        # gadget = gadget[:-3]
-                        gadget = gadget[:-depth]
-                        ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref-depth, "gadget": gadget, "bytes": bytes_, "values": ""}]
+                # for depth in range(1, self.depth + 1):
+                # for depth in range(0, self.depth + 1):
+                # bytes_ = section[ref - depth:ref]
+                bytes_ = section[ref:ref+self.depth+1]
+                # print("@{} -> {}".format(hex(ref), len(bytes_)))
+                # decodes = md.disasm(bytes_, vaddr + ref - depth)
+                decodes = md.disasm(bytes_, vaddr + ref + self.depth)
+                gadget = ""
+                for decode in decodes:
+                    gadget += (decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " ")
+                    # print((hex(vaddr+ref-depth) + ":" + decode.mnemonic + " " + decode.op_str + " ; ").replace("  ", " "))
+                if len(gadget) > 0:
+                    # CHANGED
+                    # gadget = gadget[:-3]
+                    # gadget = gadget[:-depth]
+                    # gadget = gadget[:self.depth]
+                    # ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref-depth, "gadget": gadget, "bytes": bytes_, "values": ""}]
+                    # ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref, "gadget": gadget, "bytes": bytes_, "values": ""}]
+                    ret += [{"file": os.path.basename(self.fpath), "vaddr": vaddr+ref, "gadget": gadget.rstrip(), "bytes": bytes_, "values": ""}]
         
-        return ret[-1]
+        return ret
 
     def pass_clean(self, gadgets):
         new = []
@@ -186,11 +200,15 @@ class ROP(ELF):
 
         return _gadgets
 
-    def gadget(self, s):
-        return self.search(s, xonly=True)
+    def gadget(self, *args, **kwargs):
+        m=self.gadgets(*args, **kwargs)
+        return m[0]['vaddr'] if m else None
+
+    # def gadget(self, s):
+    #     return self.search(s, xonly=True)
     
     def string(self, s):
-        return s + b'\x00'
+        return s.encode() + b'\x00'
     
     def junk(self, n=1):
         return self.fill(self.wordsize * n)
@@ -199,7 +217,8 @@ class ROP_I386(ROP):
     regs = ['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi']
 
 
-    def gadget(self, keyword, reg=None, n=1):
+    def gadgets(self, keyword=None, reg=None, n=1):
+        self.depth = n
 
         section = self.get_segments(xonly=True)
         vaddr = list(section.keys())[0]
@@ -218,6 +237,8 @@ class ROP_I386(ROP):
 
         if keyword in table:
             return self.search_gadgets(table[keyword], xonly=True)
+        elif keyword is None:
+            raise Exception("Should supply keyword")
         
         if reg:
             try:
@@ -242,7 +263,7 @@ class ROP_I386(ROP):
                     return self.search_gadgets(bytes(c), xonly=True)
             else:
                 #skip esp
-                chunk=re.compile(b"(?:[\x58-\x5b]|[\x5d-\x5f]){%d}\xc3" % n)
+                chunk=re.compile(b"[\x5d-\x5f]{%d}\xc3" % n)
                 #chunk=re.compile(b"(?:(?:[\x58-\x5b]|[\x5d-\x5f])|\x8f[\xc0-\xc3\xc5-\xc7]){%d}\xc3" % n)
                 #chunk1=re.compile(b"[\x58-\x5b\x5d-\x5f]{%d}\xc3" % n)
                 #chunk2=re.compile(b"\x8f[\xc0-\xc3\xc5-\xc7]{%d}\xc3" % n)
@@ -309,7 +330,7 @@ class ROP_I386(ROP):
                 return self.search_gadgets(bytes(c), xonly=True)
         else:
             # search directly
-            return ROP.gadget(self, keyword)
+            return None
     
     def call(self, addr, *args):
         if isinstance(addr, str):
@@ -320,6 +341,66 @@ class ROP_I386(ROP):
         
         buf = self.pack(addr)
         buf += self.pack(self.gadget('pop', n=len(args)))
-        buf += self.pack(args)
+        for n in range(0, len(args)):
+            buf += self.pack(args[n])
         return buf
         
+    def call_chain_ptr(self, *calls, **kwargs):
+        raise Exception('supports x86-64 only')
+    
+    def dl_resolve_data(self, base, name):
+        jmprel=self.dynamic('JMPREL')
+        relent=self.dynamic('RELENT')
+        symtab=self.dynamic('SYMTAB')
+        syment=self.dynamic('SYMENT')
+        strtab=self.dynamic('STRTAB')
+
+        addr_reloc, padlen_reloc = self.align(base, jmprel, relent)
+        addr_sym, padlen_sym = self.align(addr_reloc+relent, symtab, syment)
+        addr_symstr = addr_sym + syment
+
+        r_info = (((addr_sym - symtab) // syment) << 8) | 0x7
+        st_name = addr_symstr - strtab
+
+        buf = self.fill(padlen_reloc).encode()
+        buf += struct.pack('<II', base, r_info)                      # Elf32_Rel
+        buf += self.fill(padlen_sym).encode()
+        buf += struct.pack('<IIII', st_name, 0, 0, 0x12)             # Elf32_Sym
+        buf += self.string(name)
+
+        return buf
+
+    def dl_resolve_call(self, base, *args):
+        jmprel=self.dynamic('JMPREL')
+        relent=self.dynamic('RELENT')
+
+        addr_reloc, padlen_reloc = self.align(base, jmprel, relent)
+        reloc_offset = addr_reloc - jmprel
+
+        buf = pack_32(self._section['.plt'][0])
+        buf += pack_32(reloc_offset)
+        buf += pack_32(self.gadget('pop', n=len(args)))
+        for n in range(0, len(args)):
+            buf += pack_32(args[n])
+
+        return buf
+    
+    def syscall(self, number, *args):
+        try:
+            arg_regs = ['ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp']
+            buf = self.p([self.gadget('pop', 'eax'), number])
+            for arg_reg, arg in zip(arg_regs, args):
+                buf += self.p([self.gadget('pop', arg_reg), arg])
+        except ValueError:
+            # popad = pop edi, esi, ebp, esp, ebx, edx, ecx, eax
+            args = list(args) + [0] * (6-len(args))
+            buf = self.p([self.gadget('popad'), args[4], args[3], args[5], 0, args[0], args[2], args[1], number])
+        buf += self.p(self.gadget('int80'))
+        return buf
+
+    def retfill(self, size, buf=''):
+        buflen = size - len(buf)
+        assert buflen >= 0, "%d bytes over" % (-buflen,)
+        s = self.fill(buflen % self.wordsize).encode()
+        s += (pack_32(self.gadget('ret'))) * (buflen // self.wordsize)
+        return s

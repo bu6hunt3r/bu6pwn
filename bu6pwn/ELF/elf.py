@@ -120,10 +120,10 @@ class ELF(object):
         return s.encode()+b"\x00"
 
     def fill(self, size, buf=b''):
-        chars = b'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+        chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
         buflen = size - len(buf)
         assert buflen >= 0, "%d bytes over" % (-buflen,)
-        return ''.join(chr(random.choice(chars)) for i in range(10)).encode()
+        return ''.join(random.choice(chars) for i in range(buflen))
 
     def align(self, addr, origin, size):
         padlen = size - ((addr-origin) % size)
@@ -234,7 +234,7 @@ class ELF(object):
             if isinstance(s, DynamicSection):
                 for tag in s.iter_tags():
                     # Get JMPREL section
-                    if tag.entry["d_tag"] == "DT_REL":
+                    if tag.entry["d_tag"] == "DT_JMPREL":
                         self._dynamic.update({"JMPREL":tag.entry["d_val"]})
                     # Get RELENT section
                     if tag.entry["d_tag"] == "DT_RELENT":
@@ -348,44 +348,3 @@ class ELF(object):
                     return addr
         else:
             return ValueError()
-
-    def dl_resolve_data(self, base, name):
-        jmprel = self.dynamic('JMPREL')
-        relent = self.dynamic('RELENT')
-        symtab = self.dynamic('SYMTAB')
-        syment = self.dynamic('SYMENT')
-        strtab = self.dynamic('STRTAB')
-
-        addr_reloc, padlen_reloc = self.align(base, jmprel, relent)
-        info("Virtual address of relocation entry: {:#x}".format(addr_reloc))
-        info("Padding length of relocation entry: {:#x}".format(padlen_reloc))
-        addr_sym, padlen_sym = self.align(addr_reloc+relent, symtab, syment)
-        addr_symstr = addr_sym + syment
-
-        r_info = (((addr_sym - symtab) // syment) << 8) | 0x7
-
-        info("Elf32_Rel->r_info: {:#x}".format(r_info))
-        
-        st_name = addr_symstr - strtab
-
-        buf = self.fill(padlen_reloc)
-        buf += struct.pack('<II', base, r_info)                      # Elf32_Rel
-        buf += self.fill(padlen_sym)
-        buf += struct.pack('<IIII', st_name, 0, 0, 0x12)             # Elf32_Sym
-        buf += self.string(name)
-
-        return buf
-
-    def dl_resolve_call(self, base, *args):
-        jmprel = self.dynamic('JMPREL')
-        relent = self.dynamic('RELENT')
-
-        addr_reloc, padlen_reloc = self.align(base, jmprel, relent)
-        reloc_offset = addr_reloc - jmprel
-
-        buf = self.p(self.plt())
-        buf += self.p(reloc_offset)
-        buf += self.p(self.gadget('pop', n=len(args)))
-        buf += self.p(args)
-
-        return buf
