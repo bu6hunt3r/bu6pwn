@@ -404,3 +404,9 @@ class ROP_I386(ROP):
         s = self.fill(buflen % self.wordsize).encode()
         s += (pack_32(self.gadget('ret'))) * (buflen // self.wordsize)
         return s
+
+    def pivot(self, esp):
+        buf = pack_32(self.gadget('pop', reg="ebp"))
+        buf += pack_32(esp-self.wordsize)
+        buf += pack_32(self.gadget('leave'))
+        return buf

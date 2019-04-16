@@ -280,6 +280,12 @@ class ELF(object):
 
         # print(self._got)
 
+    def section(self, s):
+        if s not in self._section.keys():
+            raise Exception("Named section seems not to exist in current ELF image")
+        else:
+            return self._section[s][0]
+
     def load_segments(self):
         for ph in self.p.iter_segments():
             if ph["p_type"] == 'PT_LOAD':
